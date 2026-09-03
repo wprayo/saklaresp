@@ -88,6 +88,19 @@ void setup() {
   wm.setConnectTimeout(30);
   wm.setSaveConfigCallback(saveConfigCallback);
   wm.setAPCallback(configModeCallback); // Dipanggil saat portal AP terbuka -> LED kedip cepat
+  // --- Kustomisasi CSS Tampilan Modern ---
+  String css = "<style>"
+               "body { background-color: #f4f7f6; font-family: 'Segoe UI', Roboto, Helvetica, sans-serif; color: #333; }"
+               ".c { background: white; padding: 25px; border-radius: 15px; box-shadow: 0 8px 15px rgba(0,0,0,0.05); }"
+               "button { background-color: #2563eb; color: white; border: none; border-radius: 8px; padding: 12px 20px; font-weight: bold; font-size: 16px; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 4px 6px rgba(37,99,235,0.2); }"
+               "button:hover { background-color: #1d4ed8; transform: translateY(-2px); }"
+               "input[type='text'], input[type='password'], input[type='number'] { border-radius: 8px; border: 1px solid #cbd5e1; padding: 10px; margin-bottom: 15px; font-size: 15px; width: 100%; box-sizing: border-box; transition: border 0.3s; }"
+               "input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 5px rgba(37,99,235,0.3); }"
+               "h1 { color: #1e293b; font-size: 24px; margin-bottom: 20px; }"
+               ".msg { padding: 10px; border-radius: 8px; background-color: #e0f2fe; color: #0369a1; }"
+               "</style>";
+  wm.setCustomHeadElement(css.c_str());
+  // ---------------------------------------
 
   // Menambahkan parameter kustom di Web WiFi Manager (Error StringSumHelper diperbaiki)
   String infoTeks = "<p><b>Device Code Saat Ini:</b> " + deviceCode + "</p>";
