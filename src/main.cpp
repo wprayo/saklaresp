@@ -9,7 +9,7 @@
 
 // --- Konstanta Broker Bawaan ---
 const char* DEFAULT_BROKER = "172.16.100.36"; // Ganti dengan broker sistem Anda
-const int   DEFAULT_PORT   = 8883;                        // Port broker bawaan
+const int   DEFAULT_PORT   = 8883;            // Port broker bawaan
 const char* DEFAULT_USER   = "seseorang";              
 const char* DEFAULT_PASS   = "password";           
 
@@ -97,6 +97,12 @@ void setup() {
   String savedCPass = preferences.getString("cpass", ""); savedCPass.toCharArray(customPass, 32);
   String savedToken = preferences.getString("token", "ffgg"); savedToken.toCharArray(apiToken, 32);
 
+  // Load Status Terakhir Saklar
+  stateS1 = preferences.getBool("st1", false);
+  stateS2 = preferences.getBool("st2", false);
+  stateS3 = preferences.getBool("st3", false);
+  stateS4 = preferences.getBool("st4", false);
+
   applyPins();
 
   // 2. Konfigurasi WiFi Manager & Injeksi CSS Modern
@@ -111,11 +117,19 @@ void setup() {
                "input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 5px rgba(37,99,235,0.3); }"
                "h1 { color: #1e293b; font-size: 24px; margin-bottom: 20px; }"
                ".msg { padding: 10px; border-radius: 8px; background-color: #e0f2fe; color: #0369a1; }"
-               "</style>";
+               "</style>"
+               "<script>"
+               "document.addEventListener('DOMContentLoaded', function() {"
+               "  var btn = document.querySelector('form[action=\"/wifi\"] button');"
+               "  if(btn) btn.innerHTML = 'Configure Saklar';"
+               "});"
+               "</script>";
+
   wm.setCustomHeadElement(css.c_str());
   wm.setConnectTimeout(30);
   wm.setSaveConfigCallback(saveConfigCallback);
   wm.setAPCallback(configModeCallback); 
+  wm.setTitle("Configure Saklar");
 
   // Parameter Kustom WiFi Manager
   String infoTeks = "<div class='msg'><b>Device Code:</b> " + deviceCode + "</div><br/>";
@@ -212,65 +226,25 @@ void setup() {
   topicSet = "saklar/keminter/" + deviceCode + "/set";
   topicStatus = "saklar/keminter/" + deviceCode + "/status";
 
-  // Penentuan Port dan Server Berdasarkan Tipe
-// ========================================
-// SETUP MQTT
-// ========================================
-
-// Broker bawaan
   if (String(brokerType) == "1") {
-
     Serial.println("Mode Broker: DEFAULT TLS");
-
-    // Untuk testing TLS tanpa verifikasi sertifikat
     secureClient.setInsecure();
-
-    // Gunakan koneksi secure
     mqtt.setClient(secureClient);
-
-    mqtt.setServer(
-      DEFAULT_BROKER,
-      DEFAULT_PORT
-    );
-  }
-
-  // Broker kustom
-  else {
-
+    mqtt.setServer(DEFAULT_BROKER, DEFAULT_PORT);
+  } else {
     int port = String(customPort).toInt();
-
     Serial.println("Mode Broker: CUSTOM");
-    Serial.print("Host: ");
-    Serial.println(customBroker);
-
-    Serial.print("Port: ");
-    Serial.println(port);
-
-    // Jika port 8883 → TLS
     if (port == 8883) {
-
-      Serial.println("Menggunakan TLS");
-
       secureClient.setInsecure();
-
       mqtt.setClient(secureClient);
-
-    } 
-    else {
-
-      Serial.println("Menggunakan MQTT biasa");
-
+    } else {
       mqtt.setClient(normalClient);
     }
-
-    mqtt.setServer(
-      customBroker,
-      port
-    );
+    mqtt.setServer(customBroker, port);
   }
 
   mqtt.setCallback(mqttCallback);
-  }
+}
 
 void loop() {
   cekTombolResetWiFi();
@@ -294,10 +268,11 @@ void applyPins() {
   pinS4 = String(pinS4_str).toInt();
   pinLed = String(pinLed_str).toInt();
 
-  pinMode(pinS1, OUTPUT); digitalWrite(pinS1, HIGH); // Active-Low = MATI
-  pinMode(pinS2, OUTPUT); digitalWrite(pinS2, HIGH);
-  pinMode(pinS3, OUTPUT); digitalWrite(pinS3, HIGH);
-  pinMode(pinS4, OUTPUT); digitalWrite(pinS4, HIGH);
+  // Kembalikan posisi fisik relay sesuai status terakhirk
+  pinMode(pinS1, OUTPUT); digitalWrite(pinS1, stateS1 ? LOW : HIGH);
+  pinMode(pinS2, OUTPUT); digitalWrite(pinS2, stateS2 ? LOW : HIGH);
+  pinMode(pinS3, OUTPUT); digitalWrite(pinS3, stateS3 ? LOW : HIGH);
+  pinMode(pinS4, OUTPUT); digitalWrite(pinS4, stateS4 ? LOW : HIGH);
   pinMode(pinLed, OUTPUT); digitalWrite(pinLed, LED_OFF);
 }
 
@@ -351,12 +326,11 @@ void cekTombolResetWiFi() {
 
 void reconnectMQTT() {
   while (!mqtt.connected()) {
-    if (WiFi.status() != WL_CONNECTED) return; // Cegah hang jika WiFi putus
+    if (WiFi.status() != WL_CONNECTED) return;
 
     cekTombolResetWiFi(); 
     Serial.print("Menghubungkan ke MQTT...");
     
-    // Logika Autentikasi Broker
     bool connected = false;
     if (String(brokerType) == "1") {
       connected = mqtt.connect(deviceCode.c_str(), DEFAULT_USER, DEFAULT_PASS);
@@ -424,43 +398,38 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Pesan: "); Serial.println(message);
   Serial.println("==============================");
 
-  // Parsing JSON
   JsonDocument doc;
   DeserializationError error = deserializeJson(doc, message);
 
   if (error) {
     Serial.print("Bukan JSON: ");
     Serial.println(error.c_str());
-    // Fallback untuk "GET_STATUS" tanpa format JSON
     if (topicStr == topicStatusCek && message == "GET_STATUS") publishStatus(0); 
     return;
   }
 
-  // Ekstrak data dari JSON
   String cmd = doc["command"] | "";
   String token = doc["token"] | "";
 
-  // Verifikasi Token Keamanan
   if (token != String(apiToken)) {
     Serial.println("WARNING: Token API tidak valid! Akses ditolak.");
     return;
   }
 
-  // Eksekusi Perintah
   if (topicStr == topicStatusCek && cmd == "GET_STATUS") {
     publishStatus(0); 
   } 
   else if (topicStr == topicSet) {
-    if (cmd == "s1_ON") { digitalWrite(pinS1, LOW); stateS1 = true; publishStatus(1); }
-    else if (cmd == "s1_OFF") { digitalWrite(pinS1, HIGH); stateS1 = false; publishStatus(1); }
+    if (cmd == "s1_ON")       { digitalWrite(pinS1, LOW);  stateS1 = true;  preferences.putBool("st1", true);  publishStatus(1); }
+    else if (cmd == "s1_OFF") { digitalWrite(pinS1, HIGH); stateS1 = false; preferences.putBool("st1", false); publishStatus(1); }
     
-    else if (cmd == "s2_ON") { digitalWrite(pinS2, LOW); stateS2 = true; publishStatus(2); }
-    else if (cmd == "s2_OFF") { digitalWrite(pinS2, HIGH); stateS2 = false; publishStatus(2); }
+    else if (cmd == "s2_ON")  { digitalWrite(pinS2, LOW);  stateS2 = true;  preferences.putBool("st2", true);  publishStatus(2); }
+    else if (cmd == "s2_OFF") { digitalWrite(pinS2, HIGH); stateS2 = false; preferences.putBool("st2", false); publishStatus(2); }
     
-    else if (cmd == "s3_ON") { digitalWrite(pinS3, LOW); stateS3 = true; publishStatus(3); }
-    else if (cmd == "s3_OFF") { digitalWrite(pinS3, HIGH); stateS3 = false; publishStatus(3); }
+    else if (cmd == "s3_ON")  { digitalWrite(pinS3, LOW);  stateS3 = true;  preferences.putBool("st3", true);  publishStatus(3); }
+    else if (cmd == "s3_OFF") { digitalWrite(pinS3, HIGH); stateS3 = false; preferences.putBool("st3", false); publishStatus(3); }
     
-    else if (cmd == "s4_ON") { digitalWrite(pinS4, LOW); stateS4 = true; publishStatus(4); }
-    else if (cmd == "s4_OFF") { digitalWrite(pinS4, HIGH); stateS4 = false; publishStatus(4); }
+    else if (cmd == "s4_ON")  { digitalWrite(pinS4, LOW);  stateS4 = true;  preferences.putBool("st4", true);  publishStatus(4); }
+    else if (cmd == "s4_OFF") { digitalWrite(pinS4, HIGH); stateS4 = false; preferences.putBool("st4", false); publishStatus(4); }
   }
 }
